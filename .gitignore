@@ -1,7 +1,6 @@
 .env
 credentials.json
 token.json
-events.db
 failed_notices.log
 __pycache__/
 .venv/

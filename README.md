@@ -1,6 +1,6 @@
 # Telegram to Google Calendar Automation
 
-This project monitors a Telegram academic group, extracts event details from messages with OpenRouter AI, tracks each notice in SQLite, and creates or updates matching Google Calendar events.
+This project monitors a Telegram academic group, extracts event details from messages with OpenRouter AI, tracks each notice in PostgreSQL, and creates or updates matching Google Calendar events.
 
 ## Project Structure
 
@@ -22,7 +22,7 @@ project/
 
 - Polls Telegram with `python-telegram-bot` in polling mode.
 - Parses Bangla and English academic notices through OpenRouter using `google/gemini-2.0-flash-exp:free`.
-- Maintains an event lifecycle in SQLite: `pending`, `partial`, `confirmed`.
+- Maintains an event lifecycle in PostgreSQL: `pending`, `partial`, `confirmed`.
 - Creates Google Calendar events only when enough data exists.
 - Patches existing Google Calendar events as missing details arrive.
 - Sends private digest notifications for pending and partial events.
@@ -88,10 +88,18 @@ TELEGRAM_BOT_TOKEN=your_bot_token
 OPENROUTER_API_KEY=your_openrouter_key
 GOOGLE_CALENDAR_ID=your_calendar_id
 NOTIFY_CHAT_ID=your_telegram_user_id
+DATABASE_URL=postgresql://username:password@host:5432/database_name
 CALENDAR_TIMEZONE=Asia/Dhaka
 ```
 
-## 8. Install Dependencies
+## 8. Create the PostgreSQL Database
+
+1. Provision a PostgreSQL database locally or on your hosting provider.
+2. Copy the connection string.
+3. Set it as `DATABASE_URL` in `.env`.
+4. The app creates the `events` table automatically on startup.
+
+## 9. Install Dependencies
 
 ```bash
 python3 -m venv .venv
@@ -99,7 +107,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 9. First Run
+## 10. First Run
 
 1. Start the bot:
 
@@ -112,7 +120,7 @@ python3 main.py
 4. The app will save `token.json` locally.
 5. Future runs reuse `token.json` and do not ask again unless the token is revoked.
 
-## 10. Commands
+## 11. Commands
 
 - `/start` shows the current chat ID and your user ID.
 - `/pending` shows all pending and partial notices.
@@ -120,7 +128,7 @@ python3 main.py
 
 ## Event Lifecycle
 
-- `pending`: no date found yet. Stored in SQLite only. No calendar event is created.
+- `pending`: no date found yet. Stored in PostgreSQL only. No calendar event is created.
 - `partial`: date exists, but at least one of `time`, `syllabus`, or `location` is still missing. A calendar event is created with `[incomplete]` in the title and a description note listing missing fields.
 - `confirmed`: all required fields are present. The calendar event is patched into its final clean form.
 
@@ -132,7 +140,7 @@ Status only moves forward. Existing known fields are never overwritten by later 
 2. The bot sends the text and today's date to OpenRouter.
 3. The AI returns raw JSON or `{"is_event": false}`.
 4. If it is an event, the bot asks OpenRouter whether the message matches one of the latest 50 stored events.
-5. If no match exists, a new row is inserted.
+5. If no match exists, a new row is inserted into PostgreSQL.
 6. If a match exists, only missing fields are filled in and the raw fragment is appended.
 7. Calendar events are created or patched based on status promotion.
 8. A private digest is sent to `NOTIFY_CHAT_ID` if any pending or partial events remain.
@@ -145,11 +153,12 @@ Free hosting changes often, so verify the current limits before deploying.
 
 1. Push this project to GitHub.
 2. Create a new Railway project from the repo.
-3. Add all `.env` values in Railway variables.
+3. Add all `.env` values in Railway variables, including `DATABASE_URL` from Railway Postgres.
 4. Upload `credentials.json`.
-5. Run the bot once in a persistent environment so Google OAuth can generate `token.json`.
-6. Keep `token.json` on persistent storage. Without persistence, OAuth will repeat after restarts.
-7. Set the start command to:
+5. Attach a PostgreSQL service and confirm `DATABASE_URL` is available.
+6. Run the bot once in a persistent environment so Google OAuth can generate `token.json`.
+7. Keep `token.json` on persistent storage. Without persistence, OAuth will repeat after restarts.
+8. Set the start command to:
 
 ```bash
 python3 main.py
@@ -171,13 +180,14 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-5. Add your environment variables.
-6. Upload or mount `credentials.json`.
-7. Make sure `token.json` persists across redeploys.
+5. Provision a Render Postgres instance and set `DATABASE_URL`.
+6. Add your environment variables.
+7. Upload or mount `credentials.json`.
+8. Make sure `token.json` persists across redeploys.
 
 ## Notes
 
-- Do not commit `.env`, `credentials.json`, `token.json`, `events.db`, or `failed_notices.log`.
+- Do not commit `.env`, `credentials.json`, `token.json`, or `failed_notices.log`.
 - The bot uses polling, so it does not need a public webhook URL.
 - Timed events default to one hour.
 - If only a date is known, the bot creates an all-day event.

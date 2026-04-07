@@ -212,7 +212,7 @@ def main() -> None:
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN is missing")
 
-    db = Database()
+    db = Database(os.getenv("DATABASE_URL", ""))
     try:
         db.initialize()
     except Exception as exc:
