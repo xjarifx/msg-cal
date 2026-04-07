@@ -4,3 +4,4 @@ token.json
 failed_notices.log
 __pycache__/
 .venv/
+telegram_user_session.session

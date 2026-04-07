@@ -1,6 +1,6 @@
 # Telegram to Google Calendar Automation
 
-This project monitors a Telegram academic group, extracts event details from messages with OpenRouter AI, tracks each notice in PostgreSQL, and creates or updates matching Google Calendar events.
+This project monitors a Telegram group using your own Telegram account through `Telethon`, extracts academic notices with OpenRouter AI, tracks them in PostgreSQL, and creates or updates matching Google Calendar events.
 
 ## Project Structure
 
@@ -18,39 +18,87 @@ project/
 └── README.md
 ```
 
+## Before You Run This
+
+This app is not ready to run from a fresh clone unless you supply the required local secrets and OAuth files yourself.
+
+You need all of these before normal operation:
+
+- `.env` with valid Telegram, OpenRouter, PostgreSQL, and Google Calendar values
+- `credentials.json` from Google OAuth client setup
+- access to the target Telegram group from the Telegram account in `TELEGRAM_PHONE`
+- a reachable PostgreSQL database
+
+What the app creates later:
+
+- `telegram_user_session.session` after Telegram login
+- `token.json` after Google OAuth succeeds
+- the `events` table inside your PostgreSQL database
+
+If `credentials.json` is missing, Telegram monitoring can still start, but Google Calendar creation and patching will fail when the app first tries to sync an event.
+
 ## Features
 
-- Polls Telegram with `python-telegram-bot` in polling mode.
+- Uses a Telegram user session with `Telethon`, not a bot.
+- Works even when you cannot add a bot to the target group, as long as your Telegram account can read that group.
 - Parses Bangla and English academic notices through OpenRouter using `google/gemini-2.0-flash-exp:free`.
 - Maintains an event lifecycle in PostgreSQL: `pending`, `partial`, `confirmed`.
 - Creates Google Calendar events only when enough data exists.
 - Patches existing Google Calendar events as missing details arrive.
 - Sends private digest notifications for pending and partial events.
-- Logs failures to `failed_notices.log` without crashing the bot.
+- Supports `/start`, `/pending`, and `/all` commands from your own notification chat.
+- Logs failures to `failed_notices.log` without crashing the app.
 
-## 1. Create a Telegram Bot
+## 1. Get Telegram API Credentials
 
-1. Open Telegram and start a chat with `@BotFather`.
-2. Run `/newbot`.
-3. Follow the prompts to choose a bot name and username.
-4. Copy the bot token BotFather gives you.
-5. Put that value into `TELEGRAM_BOT_TOKEN` in `.env`.
+This is different from a bot token.
 
-## 2. Add the Bot to Your Academic Group
+1. Go to https://my.telegram.org/
+2. Sign in with your Telegram account.
+3. Open `API development tools`.
+4. Create an application.
+5. Copy your `api_id` and `api_hash`.
+6. Put them into `.env` as `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`.
 
-1. Add the bot to the target Telegram group.
-2. Disable privacy mode with `@BotFather` if you want the bot to read normal group messages:
-   Run `/setprivacy`, choose your bot, then select `Disable`.
-3. Send `/start` inside the group.
-4. The bot will reply with the current chat ID. Use that if you need to verify the bot is seeing the correct group.
+## 2. Choose the Telegram Account the App Will Use
 
-## 3. Get Your Personal Telegram User ID
+1. Use the phone number of the Telegram account that already has access to the academic group.
+2. Put that number into `.env` as `TELEGRAM_PHONE` in international format.
+   Example: `+8801XXXXXXXXX`
+3. On first run, the app will ask for the login code sent by Telegram.
+4. If your account has two-step verification, it will also ask for the password.
+5. The session is then saved locally in `telegram_user_session.session`.
 
-1. Send `/start` to the bot in a private chat.
-2. The reply includes your Telegram user ID.
-3. Put that value into `NOTIFY_CHAT_ID` in `.env`.
+## 3. Find the Source Group ID
 
-## 4. Enable Google Calendar API and Download `credentials.json`
+List your Telegram chats:
+
+```bash
+python3 main.py --list-chats
+```
+
+Resolve a specific group by name, username, or link:
+
+```bash
+python3 main.py --resolve-chat "My Academic Group"
+```
+
+Then either:
+
+- put the numeric ID into `.env` as `SOURCE_CHAT_ID`, or
+- put the exact group name into `.env` as `SOURCE_CHAT_NAME`
+
+## 4. Choose the Notification Chat
+
+Set `NOTIFY_CHAT_ID` to the Telegram chat where the app should send digests and where it should accept `/start`, `/pending`, and `/all`.
+
+Common choices:
+
+- Your own user ID
+- Your Saved Messages chat ID
+- A private chat you control
+
+## 5. Enable Google Calendar API and Download `credentials.json`
 
 1. Go to Google Cloud Console: https://console.cloud.google.com/
 2. Create a new project or select an existing one.
@@ -58,13 +106,14 @@ project/
 4. Search for `Google Calendar API` and enable it.
 5. Open `APIs & Services` -> `OAuth consent screen`.
 6. Configure the consent screen.
-   For personal use, `External` is fine.
 7. Open `APIs & Services` -> `Credentials`.
 8. Click `Create Credentials` -> `OAuth client ID`.
 9. Choose `Desktop app`.
 10. Download the JSON file and save it in this project as `credentials.json`.
 
-## 5. Create or Choose a Google Calendar
+This file is required by the current implementation in `calendar_api.py`. Without it, the app cannot complete Google OAuth and cannot write to Google Calendar.
+
+## 6. Create or Choose a Google Calendar
 
 1. Open Google Calendar.
 2. Create a dedicated calendar or use an existing one.
@@ -72,34 +121,37 @@ project/
 4. Copy the `Calendar ID`.
 5. Put that value into `GOOGLE_CALENDAR_ID` in `.env`.
 
-## 6. Get an OpenRouter API Key
+## 7. Get an OpenRouter API Key
 
 1. Go to https://openrouter.ai/
 2. Sign in or create an account.
 3. Create an API key.
 4. Put that value into `OPENROUTER_API_KEY` in `.env`.
 
-## 7. Fill in `.env`
-
-Copy `.env.example` if needed, then fill in:
-
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token
-OPENROUTER_API_KEY=your_openrouter_key
-GOOGLE_CALENDAR_ID=your_calendar_id
-NOTIFY_CHAT_ID=your_telegram_user_id
-DATABASE_URL=postgresql://username:password@host:5432/database_name
-CALENDAR_TIMEZONE=Asia/Dhaka
-```
-
-## 8. Create the PostgreSQL Database
+## 8. Configure PostgreSQL
 
 1. Provision a PostgreSQL database locally or on your hosting provider.
 2. Copy the connection string.
 3. Set it as `DATABASE_URL` in `.env`.
 4. The app creates the `events` table automatically on startup.
 
-## 9. Install Dependencies
+## 9. Fill in `.env`
+
+```env
+TELEGRAM_API_ID=12345678
+TELEGRAM_API_HASH=your_telegram_api_hash
+TELEGRAM_PHONE=+8801XXXXXXXXX
+TELEGRAM_SESSION_NAME=telegram_user_session
+OPENROUTER_API_KEY=your_openrouter_key
+GOOGLE_CALENDAR_ID=your_calendar_id
+SOURCE_CHAT_NAME=My Academic Group
+SOURCE_CHAT_ID=-1001234567890
+NOTIFY_CHAT_ID=123456789
+DATABASE_URL=postgresql://username:password@host:5432/database_name
+CALENDAR_TIMEZONE=Asia/Dhaka
+```
+
+## 10. Install Dependencies
 
 ```bash
 python3 -m venv .venv
@@ -107,24 +159,56 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 10. First Run
+## 11. First Run
 
-1. Start the bot:
+List chats first if you do not know the group ID yet:
+
+```bash
+python3 main.py --list-chats
+```
+
+Start monitoring:
 
 ```bash
 python3 main.py
 ```
 
-2. On the first Google Calendar action, a browser window will open for Google OAuth.
-3. Finish the login and consent flow.
-4. The app will save `token.json` locally.
-5. Future runs reuse `token.json` and do not ask again unless the token is revoked.
+Do not skip the Google setup if you expect calendar sync to work. The app does not auto-create `credentials.json`, and it does not fall back to any other Google authentication method.
 
-## 11. Commands
+What happens on first run:
 
-- `/start` shows the current chat ID and your user ID.
+1. The app logs in to Telegram using your user account.
+2. Telegram sends a login code to your app.
+3. You enter the code in the terminal.
+4. If needed, you enter your two-step verification password.
+5. The session is saved locally for later runs.
+6. On the first Google Calendar action, a browser window opens for Google OAuth.
+7. The app saves `token.json` locally after successful Google login.
+
+If you run this on a remote server without a practical browser-based OAuth flow, you will need to solve that deployment detail first or change the authentication approach in code.
+
+## 12. Commands
+
+Send these from the chat whose ID matches `NOTIFY_CHAT_ID`:
+
+- `/start` shows the current chat ID and your Telegram user ID.
 - `/pending` shows all pending and partial notices.
 - `/all` shows all tracked events from the last 30 days.
+
+## Fresh Database Behavior
+
+- A brand-new PostgreSQL database is fine.
+- On startup, the app creates the `events` table automatically if it does not already exist.
+- You do not need to create any table manually.
+
+## Which Telegram Chat Is Monitored
+
+- The app processes only messages from the configured source chat.
+- It first uses `SOURCE_CHAT_ID` if provided.
+- Otherwise it tries to resolve `SOURCE_CHAT_NAME` automatically.
+- All other chats are ignored.
+- Filtering is done by numeric chat ID, not by display name.
+- If multiple chats have the same exact name, use `SOURCE_CHAT_ID` to avoid ambiguity.
 
 ## Event Lifecycle
 
@@ -136,10 +220,10 @@ Status only moves forward. Existing known fields are never overwritten by later 
 
 ## How Message Processing Works
 
-1. A Telegram group message arrives.
-2. The bot sends the text and today's date to OpenRouter.
+1. A new message arrives in the configured source chat.
+2. The app sends the text and today's date to OpenRouter.
 3. The AI returns raw JSON or `{"is_event": false}`.
-4. If it is an event, the bot asks OpenRouter whether the message matches one of the latest 50 stored events.
+4. If it is an event, the app asks OpenRouter whether the message matches one of the latest 50 stored events.
 5. If no match exists, a new row is inserted into PostgreSQL.
 6. If a match exists, only missing fields are filled in and the raw fragment is appended.
 7. Calendar events are created or patched based on status promotion.
@@ -147,18 +231,16 @@ Status only moves forward. Existing known fields are never overwritten by later 
 
 ## Running 24/7 on Railway or Render
 
-Free hosting changes often, so verify the current limits before deploying.
+Free hosting policies change often, so verify current limits before deployment.
 
 ### Railway
 
 1. Push this project to GitHub.
 2. Create a new Railway project from the repo.
-3. Add all `.env` values in Railway variables, including `DATABASE_URL` from Railway Postgres.
+3. Add all `.env` values in Railway variables, including `DATABASE_URL`.
 4. Upload `credentials.json`.
-5. Attach a PostgreSQL service and confirm `DATABASE_URL` is available.
-6. Run the bot once in a persistent environment so Google OAuth can generate `token.json`.
-7. Keep `token.json` on persistent storage. Without persistence, OAuth will repeat after restarts.
-8. Set the start command to:
+5. Make sure the Telegram session file and `token.json` persist across restarts.
+6. Start the worker with:
 
 ```bash
 python3 main.py
@@ -180,14 +262,14 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-5. Provision a Render Postgres instance and set `DATABASE_URL`.
-6. Add your environment variables.
-7. Upload or mount `credentials.json`.
-8. Make sure `token.json` persists across redeploys.
+5. Provision Postgres and set `DATABASE_URL`.
+6. Upload or mount `credentials.json`.
+7. Make sure the Telegram session file and `token.json` persist across redeploys.
 
 ## Notes
 
-- Do not commit `.env`, `credentials.json`, `token.json`, or `failed_notices.log`.
-- The bot uses polling, so it does not need a public webhook URL.
+- Do not commit `.env`, `credentials.json`, `token.json`, `telegram_user_session.session`, or `failed_notices.log`.
+- This app does not use a Telegram bot token.
+- `credentials.json` is a manual prerequisite. It is not generated by the app.
 - Timed events default to one hour.
-- If only a date is known, the bot creates an all-day event.
+- If only a date is known, the app creates an all-day event.
